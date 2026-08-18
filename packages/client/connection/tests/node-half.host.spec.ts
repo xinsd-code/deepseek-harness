@@ -90,6 +90,39 @@ async function mounted(config?: { trustedHosts?: string[] }): Promise<{
 }
 
 describe('connection node half', () => {
+  it('dispatches trusted in-process Electron requests without a WebServer service', async () => {
+    const ctx = new Context()
+    ctx.provide('apiProxy', {} as ApiProxy)
+    const fiber = ctx.plugin({ inject: [...inject], apply }, { carrier: 'electron' })
+    await fiber.await()
+    const connection = ctx.get('connection') as HostConnectionHandle
+    const remove = connection.rpc.intercept(
+      '/api',
+      endpoint => endpoint === 'goals/create',
+      async (_endpoint, payload) => ({ ok: true, value: payload }),
+      { authority: 'trusted-host' },
+    )
+    const request: ClientRequest = {
+      type: 'client-request',
+      rpcId: RpcId('electron-local'),
+      method: 'goals/create',
+      payload: { args: { title: 'desktop' } },
+    }
+    const response = await connection.fetchLocal(new Request('http://127.0.0.1/api/goals/create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', host: '127.0.0.1' },
+      body: JSON.stringify(request),
+    }))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      type: 'server-response',
+      rpcId: 'electron-local',
+      result: { ok: true, value: { args: { title: 'desktop' } } },
+    })
+    await remove()
+    await fiber.dispose()
+  })
+
   it('fails loud when the carrier cap cannot hold the configured image batch', () => {
     const ctx = new Context()
     const routes: WebRoute[] = []

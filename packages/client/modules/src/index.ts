@@ -28,6 +28,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { WebBootEntry, WebBootGraph } from './client/manifest.ts'
@@ -41,6 +42,15 @@ declare module '@deepseek-ai/cordis' {
     /** The web plugin table (provided by the client-modules node half). */
     clientModules: ClientModuleRegistry
   }
+}
+
+/** Physical carrier that publishes the composed client graph and bundles. */
+export type ClientModuleCarrier = 'web' | 'electron'
+
+/** Client-module Host configuration. */
+export interface Config {
+  /** `web` registers HTTP routes and index taps; `electron` leaves publication to the desktop application. */
+  carrier?: ClientModuleCarrier
 }
 
 /** package.json `dsh.client` declaration fields, validated one by one after reading the file. */
@@ -182,7 +192,11 @@ export function injectBootManifest(html: string, graph: WebBootGraph): string {
  * boot activation audit reports it).
  */
 export class ClientModuleRegistry extends Service {
-  static inject = ['webServer', 'loader']
+  static inject = ['loader']
+
+  static Config: z<Config> = z.object({
+    carrier: z.union([z.const('web'), z.const('electron')]).default('web'),
+  })
 
   private readonly table = new Map<string, WebPluginRecord>()
   // Negative verdicts (unresolvable specifier — builtins like cordis:include,
@@ -200,7 +214,7 @@ export class ClientModuleRegistry extends Service {
    * Build the service: subscribe, seed, and run the activation flush.
    * @param ctx - plugin context carrying webServer and loader.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'clientModules')
     // Resolution anchor: the config tree's baseUrl (the cordis.yml directory,
     // whose package declares every composed plugin as a dependency). The
@@ -238,14 +252,20 @@ export class ClientModuleRegistry extends Service {
       throw new ClientPackageCompositionError(failures)
     }
 
-    ctx.effect(
-      () => ctx.webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
-      'client-modules: bundle route',
-    )
-    ctx.effect(
-      () => ctx.webServer.tapIndex(html => injectBootManifest(html, this.composed)),
-      'client-modules: boot manifest injection',
-    )
+    if ((config.carrier ?? 'web') === 'web') {
+      const webServer = ctx.get('webServer')
+      if (webServer === undefined) {
+        throw new Error('client-modules: carrier "web" requires the webServer service')
+      }
+      ctx.effect(
+        () => webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
+        'client-modules: bundle route',
+      )
+      ctx.effect(
+        () => webServer.tapIndex(html => injectBootManifest(html, this.composed)),
+        'client-modules: boot manifest injection',
+      )
+    }
   }
 
   /**

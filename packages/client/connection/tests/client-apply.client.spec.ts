@@ -4,7 +4,7 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apply, type ConnectionHandle } from '../src/client/index.ts'
+import { apply, registerClientCarrier, type ConnectionHandle } from '../src/client/index.ts'
 import type { RpcMessage } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 import { FixtureApiClient } from '../src/client/fixture.ts'
@@ -49,6 +49,7 @@ class FakeWebSocket extends EventTarget {
 
 afterEach(() => {
   delete (globalThis as Win).location
+  delete (globalThis as { __DSH_CLIENT_CARRIER__?: unknown }).__DSH_CLIENT_CARRIER__
   sockets.length = 0
   if (originalWebSocket === undefined) delete (globalThis as WebSocketGlobal).WebSocket
   else globalThis.WebSocket = originalWebSocket
@@ -63,6 +64,37 @@ async function mount(): Promise<ConnectionHandle> {
 }
 
 describe('connection client apply', () => {
+  it('selects a registered carrier and routes generic RPC through its Fetch operation', async () => {
+    ;(globalThis as Win).location = { hostname: '192.0.2.20', search: '' }
+    const api = new WebApiClient()
+    const fetch = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      if (typeof init?.body !== 'string') throw new TypeError('expected a JSON body')
+      const request = JSON.parse(init.body) as { rpcId: string }
+      return Response.json({
+        type: 'server-response',
+        rpcId: request.rpcId,
+        result: { ok: true, value: { selected: true } },
+      })
+    })
+    registerClientCarrier({ api, fetch, loopback: true })
+    const handle = await mount()
+    expect(handle.api).toBe(api)
+    expect(handle.isLoopback).toBe(true)
+    await expect(handle.rpc.call('/desktop', 'test', {}))
+      .resolves.toEqual({ ok: true, value: { selected: true } })
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps fixture mode ahead of a registered carrier', async () => {
+    ;(globalThis as Win).location = { hostname: 'app', search: '?fixture' }
+    registerClientCarrier({
+      api: new WebApiClient(),
+      fetch: vi.fn(),
+      loopback: true,
+    })
+    expect((await mount()).api).toBeInstanceOf(FixtureApiClient)
+  })
+
   it('mounts ctx.connection with the real client when no ?fixture switch is present', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     const handle = await mount()

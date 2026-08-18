@@ -1,0 +1,44 @@
+{
+  "name": "@deepseek-ai/dsh-desktop",
+  "description": "DeepSeek Harness Electron desktop application for macOS",
+  "version": "0.1.0-rc.5",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "apps/electron"
+  },
+  "type": "module",
+  "main": "lib/main.js",
+  "license": "MIT",
+  "files": [
+    "config",
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -b && tsdown",
+    "start": "electron .",
+    "package": "node scripts/forge.mjs package",
+    "make": "node scripts/forge.mjs make"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis-plugin-group": "workspace:^",
+    "@deepseek-ai/dsh": "workspace:^",
+    "@deepseek-ai/dsh-app-boot": "workspace:^",
+    "@deepseek-ai/dsh-brand": "workspace:^",
+    "@deepseek-ai/dsh-client-connection": "workspace:^",
+    "@deepseek-ai/dsh-client-modules": "workspace:^",
+    "@deepseek-ai/dsh-host-apiproxy": "workspace:^",
+    "@deepseek-ai/dsh-web-frontend": "workspace:^"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
+    "@electron-forge/shared-types": "^7.11.2",
+    "electron": "^43.2.0",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3"
+  }
+}

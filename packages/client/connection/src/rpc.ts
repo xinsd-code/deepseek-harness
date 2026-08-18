@@ -56,6 +56,13 @@ export interface HostConnectionRpc {
 export interface HostConnectionHandle {
   /** Generic RPC channel registry. */
   readonly rpc: HostConnectionRpc
+  /**
+   * Dispatch one trusted in-process request through the shared `/api` interceptor and API Proxy fallback.
+   * The application carrier authenticates its caller before invoking this method.
+   * @param request - loopback-authored Fetch request carrying one protocol message.
+   * @returns the protocol response.
+   */
+  fetchLocal(request: Request): Promise<Response>
 }
 
 /** Client caller for logical RPC channels carried by the current transport. */

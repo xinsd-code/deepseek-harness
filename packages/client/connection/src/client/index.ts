@@ -5,6 +5,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { HostDescription, IApiClient } from './api.ts'
+import { resolveClientCarrier } from './carrier.ts'
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
@@ -35,6 +36,8 @@ export {
   AbstractApiClient,
   transportError,
 } from './api.ts'
+export { registerClientCarrier } from './carrier.ts'
+export type { ClientCarrier } from './carrier.ts'
 
 // Connection loop types are public through ConnectionHandle.start; the
 // controller remains package-internal.
@@ -85,8 +88,9 @@ export function apply(ctx: Context): void {
   const pageLocation = typeof location === 'undefined' ? undefined : location
   const fixture = pageLocation !== undefined && new URLSearchParams(pageLocation.search).has('fixture')
   const fixtureClient = fixture ? new FixtureApiClient() : undefined
-  const api: IApiClient = fixtureClient ?? new WebApiClient()
-  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc()
+  const carrier = resolveClientCarrier()
+  const api: IApiClient = fixtureClient ?? carrier?.api ?? new WebApiClient()
+  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc(carrier?.fetch)
   let started = false
   let description: HostDescription | undefined
   const descriptionListeners = new Set<() => void>()
@@ -103,7 +107,7 @@ export function apply(ctx: Context): void {
   }
   const handle: ConnectionHandle = {
     api,
-    isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    isLoopback: carrier?.loopback ?? (pageLocation === undefined || isLoopbackHostname(pageLocation.hostname)),
     hostDescription: {
       getSnapshot: () => description,
       subscribe: (listener) => {

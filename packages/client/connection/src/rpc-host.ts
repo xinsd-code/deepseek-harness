@@ -11,6 +11,7 @@ import {
   type RpcId as RpcIdType,
   type ServerResponse as RpcServerResponse,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { bridge, type FetchHandler } from './http-bridge.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
 import { API_PATH } from './api-path.ts'
@@ -60,6 +61,12 @@ export class HostConnectionService extends Service implements HostConnectionHand
       intercept: (channel, matches, handler, options) =>
         this.registerInterceptor(owner, channel, matches, handler, options),
     }
+  }
+
+  async fetchLocal(request: Request): Promise<Response> {
+    const apiProxy = this.ctx.get('apiProxy')
+    if (apiProxy === undefined) return new Response('not found', { status: 404 })
+    return this.createSharedFetchHandler(API_PATH, toFetchHandler(apiProxy)).fetch(request)
   }
 
   /**

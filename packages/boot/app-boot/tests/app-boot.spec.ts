@@ -561,11 +561,14 @@ describe('boot', () => {
   it('can resolve bare plugins from the harness when the config project shadows their package name', async () => {
     const dir = tmp()
     const harness = tmp()
+    const fallback = tmp()
     const absolutePlugin = join(dir, 'absolute.mjs')
     const shadow = join(dir, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
     const harnessPlugin = join(harness, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
+    const fallbackPlugin = join(fallback, 'node_modules', 'example-fallback-plugin')
     mkdirSync(shadow, { recursive: true })
     mkdirSync(harnessPlugin, { recursive: true })
+    mkdirSync(fallbackPlugin, { recursive: true })
     writeFileSync(join(shadow, 'package.json'), JSON.stringify({
       name: '@deepseek-ai/dsh-system-prompt',
       type: 'module',
@@ -588,6 +591,17 @@ describe('boot', () => {
       '}',
       '',
     ].join('\n'))
+    writeFileSync(join(fallbackPlugin, 'package.json'), JSON.stringify({
+      name: 'example-fallback-plugin',
+      type: 'module',
+      exports: './index.mjs',
+    }))
+    writeFileSync(join(fallbackPlugin, 'index.mjs'), [
+      'export function apply(ctx) {',
+      '  ctx.provide("fallbackPluginLoaded", true)',
+      '}',
+      '',
+    ].join('\n'))
     writeFileSync(join(dir, 'relative.mjs'), 'export function apply(ctx) { ctx.provide("relativePluginLoaded", true) }\n')
     writeFileSync(absolutePlugin, 'export function apply(ctx) { ctx.provide("absolutePluginLoaded", true) }\n')
     const entries = [
@@ -603,6 +617,8 @@ describe('boot', () => {
       ...entries,
       '- id: absolute',
       `  name: ${JSON.stringify(absolutePlugin)}`,
+      '- id: fallback',
+      '  name: example-fallback-plugin',
       '',
     ].join('\n'))
     const configOwned = await boot(NAME, configOwnedPath)
@@ -614,12 +630,15 @@ describe('boot', () => {
       await configOwned.fiber.dispose()
     }
     const harnessBaseUrl = pathToFileURL(join(harness, 'entry.mjs')).href
-    const ctx = await boot(NAME, hostOwnedPath, undefined, undefined, harnessBaseUrl)
+    const ctx = await boot(NAME, hostOwnedPath, undefined, (hostCtx) => {
+      hostCtx.loader.internal = undefined
+    }, [harnessBaseUrl, pathToFileURL(join(fallback, 'entry.mjs')).href])
     try {
       expect(ctx.get('harnessPluginLoaded')).toBe(true)
       expect(ctx.get('shadowPluginLoaded')).toBeUndefined()
       expect(ctx.get('relativePluginLoaded')).toBe(true)
       expect(ctx.get('absolutePluginLoaded')).toBe(true)
+      expect(ctx.get('fallbackPluginLoaded')).toBe(true)
     } finally {
       await ctx.fiber.dispose()
     }

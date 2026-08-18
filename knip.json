@@ -740,6 +740,24 @@
         "@deepseek-ai/.+"
       ]
     },
+    "apps/electron": {
+      "entry": [
+        "src/main.ts",
+        "src/preload.ts",
+        "forge.config.ts",
+        "scripts/forge.mjs",
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "forge.config.ts",
+        "scripts/**/*.mjs",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@deepseek-ai/.+"
+      ]
+    },
     "packages/client/modules": {
       "entry": [
         "tests/**/*.spec.ts"

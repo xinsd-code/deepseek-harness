@@ -8,6 +8,7 @@
 
 import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { parseEnv } from 'node:util'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
@@ -487,19 +488,32 @@ export async function mountRootInclude(
   ctx: Context,
   absoluteConfigPath: string,
   patches: readonly PatchOptions[] = [],
-  bareModuleBaseUrl?: string,
+  bareModuleBaseUrl?: string | readonly string[],
 ): Promise<Entry | undefined> {
+  const baseUrls = bareModuleBaseUrl === undefined
+    ? []
+    : typeof bareModuleBaseUrl === 'string' ? [bareModuleBaseUrl] : [...bareModuleBaseUrl]
+  const hostRequires = baseUrls.map(createRequire)
   ctx.loader.builtins.include = bareModuleBaseUrl === undefined
     ? Include
     : class HostResolvedRootInclude extends Include {
       override import(name: string, getOuterStack?: () => string[]): unknown {
-        const specifier = isAbsolute(name) ? pathToFileURL(name).href : name
-        if (name.startsWith('.') || name.startsWith('cordis:')) return super.import(specifier, getOuterStack)
+        if (name.startsWith('.') || name.startsWith('cordis:')) return super.import(name, getOuterStack)
+        if (isAbsolute(name)) return import(pathToFileURL(name).href)
         const internal = this.ctx.loader.internal
-        /* v8 ignore next -- Node supplies the internal loader; this preserves the
-           original diagnostic for hypothetical embedders without it. */
-        if (internal === undefined) return super.import(specifier, getOuterStack)
-        return internal.import(specifier, bareModuleBaseUrl, {})
+        const onlyBaseUrl = baseUrls[0]
+        if (internal !== undefined && baseUrls.length === 1 && onlyBaseUrl !== undefined) {
+          return internal.import(name, onlyBaseUrl, {})
+        }
+        let failure: unknown
+        for (const hostRequire of hostRequires) {
+          try {
+            return import(pathToFileURL(hostRequire.resolve(name)).href)
+          } catch (error) {
+            failure = error
+          }
+        }
+        throw failure
       }
     }
   // `cordis:group` alongside it: a group row is how a composition gives one
@@ -737,8 +751,9 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
  * partial context; a missing fiber or never-activating entry is rejected by
  * the final audit, {@link assertEntriesActivated}, which rethrows a plugin's
  * init rejection with its original stack; later unhandled rejections remain
- * covered by {@link installFailLoud}. Built bins need the Loader's native
- * helper for bare plugin specifiers; relative specifiers do not.
+ * covered by {@link installFailLoud}. Bare plugin specifiers use the Loader's
+ * native helper when available and otherwise resolve through the explicit
+ * installed-host base; relative specifiers do not need either path.
  * @param binName - the diagnostic prefix for load-failure errors.
  * @param absoluteConfigPath - the config to include; must already be absolute
  * (see {@link resolveConfigPath}).
@@ -759,7 +774,7 @@ export async function boot(
   absoluteConfigPath: string,
   patches?: PatchOptions[],
   prepare?: (ctx: Context) => Promise<void> | void,
-  bareModuleBaseUrl?: string,
+  bareModuleBaseUrl?: string | readonly string[],
 ): Promise<Context> {
   const ctx = new Context()
   // Two failure labels: `prepare` runs before any config-tree entry mounts,

@@ -24,9 +24,16 @@ packages:
 # builds must resolve those matching names to this workspace's pinned sources.
 linkWorkspacePackages: true
 
+# Electron Forge requires an explicit pnpm hoist policy before packaging.
+hoistPattern:
+  - '*'
+
 overrides:
   '@deepseek-ai/cosmokit': 'link:vendor/cosmokit'
   '@deepseek-ai/schemastery': 'link:vendor/schemastery'
+  # Electron Forge 7 pulls this exact build tool from Git through rebuild 3.
+  # Use the maintained registry release so blockExoticSubdeps stays effective.
+  '@electron/rebuild>@electron/node-gyp': '10.2.0-electron.2'
 
 peerDependencyRules:
   allowedVersions:
@@ -38,6 +45,7 @@ peerDependencyRules:
 # default and only allow scripts we need. esbuild (native binary) and lefthook
 # (git hooks) genuinely need theirs.
 allowBuilds:
+  electron: true
   esbuild: true
   lefthook: true
   # Cross-platform boundary for the persistent PTY backend, including ConPTY on Windows.

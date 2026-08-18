@@ -391,11 +391,11 @@ Source: [`packages/shell/bash-sandbox/src/index.ts:35`](../packages/shell/bash-s
 
 ## `@deepseek-ai/dsh-client-connection`
 
-Requires: `webServer`
-
 ```ts config-catalog
 /** Plugin config: the deployment's non-loopback serving authorities. */
 export interface ConnectionConfig {
+  /** `web` mounts HTTP/WebSocket routes; `electron` exposes only the in-process Connection service. */
+  carrier?: ConnectionCarrier
   /**
    * Authorities this deployment serves beyond loopback: exact `host:port`, or
    * port-less `host` matching any port. The /api trust fence refuses any
@@ -408,9 +408,12 @@ export interface ConnectionConfig {
   /** Maximum buffered JSON body for every `/api` request. */
   maxRequestBodyBytes?: number
 }
+
+/** Physical carrier mounted by this Host plugin. */
+export type ConnectionCarrier = 'web' | 'electron'
 ```
 
-Source: [`packages/client/connection/src/index.ts:50`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:53`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 
@@ -427,6 +430,25 @@ export interface Config {
 ```
 
 Source: [`packages/client/hmr/src/index.ts:31`](../packages/client/hmr/src/index.ts)
+
+<a id="deepseek-aidsh-client-modules"></a>
+
+## `@deepseek-ai/dsh-client-modules`
+
+Requires: `loader`
+
+```ts config-catalog
+/** Client-module Host configuration. */
+export interface Config {
+  /** `web` registers HTTP routes and index taps; `electron` leaves publication to the desktop application. */
+  carrier?: ClientModuleCarrier
+}
+
+/** Physical carrier that publishes the composed client graph and bundles. */
+export type ClientModuleCarrier = 'web' | 'electron'
+```
+
+Source: [`packages/client/modules/src/index.ts:51`](../packages/client/modules/src/index.ts)
 
 <a id="deepseek-aidsh-code-runtime-worker-thread"></a>
 
@@ -3029,7 +3051,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-api-gateway` — requires `typert` ([`packages/api/gateway/src/index.ts`](../packages/api/gateway/src/index.ts))
 - `@deepseek-ai/dsh-api-remotes` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
-- `@deepseek-ai/dsh-client-modules` — requires `webServer` · `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-agent-preset` ([`packages/client/ui-agent-preset/src/index.ts`](../packages/client/ui-agent-preset/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-commands` ([`packages/client/ui-commands/src/index.ts`](../packages/client/ui-commands/src/index.ts))

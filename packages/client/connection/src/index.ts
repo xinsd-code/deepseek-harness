@@ -26,6 +26,9 @@ export { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
 
+/** Physical carrier mounted by this Host plugin. */
+export type ConnectionCarrier = 'web' | 'electron'
+
 /** Headroom for RPC JSON fields around aggregate base64 image payloads. */
 const REQUEST_ENVELOPE_HEADROOM_BYTES = 1024 * 1024
 
@@ -44,10 +47,12 @@ function assertImageBodyCapacity(ctx: Context, maxRequestBodyBytes: number): voi
 }
 
 /** Services required before providing Connection; API Proxy is an optional `/api` fallback. */
-export const inject = ['webServer']
+export const inject: string[] = []
 
 /** Plugin config: the deployment's non-loopback serving authorities. */
 export interface ConnectionConfig {
+  /** `web` mounts HTTP/WebSocket routes; `electron` exposes only the in-process Connection service. */
+  carrier?: ConnectionCarrier
   /**
    * Authorities this deployment serves beyond loopback: exact `host:port`, or
    * port-less `host` matching any port. The /api trust fence refuses any
@@ -62,6 +67,7 @@ export interface ConnectionConfig {
 }
 
 export const Config: z<ConnectionConfig> = z.object({
+  carrier: z.union([z.const('web'), z.const('electron')]).default('web'),
   trustedHosts: z.array(String).default([]),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
 })
@@ -136,6 +142,14 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
   if (ctx.get('apiProxy') !== undefined) assertImageBodyCapacity(ctx, maxRequestBodyBytes)
   const connection = new HostConnectionService(ctx, trustedHosts)
+  if ((config?.carrier ?? 'web') === 'electron') {
+    ctx.inject(['apiProxy'], (apiCtx) => { assertImageBodyCapacity(apiCtx, maxRequestBodyBytes) })
+    return
+  }
+  const webServer = ctx.get('webServer')
+  if (webServer === undefined) {
+    throw new Error('client-connection: carrier "web" requires the webServer service')
+  }
   const fetchHandler = connection.createSharedFetchHandler(API_PATH, {
     async fetch(request) {
       const pathname = new URL(request.url).pathname
@@ -170,7 +184,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
       await bridge(req, res, fetchHandler, maxRequestBodyBytes)
     },
   }
-  ctx.effect(() => ctx.webServer.register(route), 'client-connection: /api route')
+  ctx.effect(() => webServer.register(route), 'client-connection: /api route')
   ctx.inject(['apiProxy'], (apiCtx) => {
     assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
     const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
@@ -178,7 +192,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
       path: string,
       handle: WebUpgradeRoute['handler'],
     ): void => {
-      apiCtx.effect(() => apiCtx.webServer.registerUpgrade({
+      apiCtx.effect(() => webServer.registerUpgrade({
         path,
         handler: (req, socket, head) => {
           if (!isTrustedApiRequest(req, trustedHosts)) {

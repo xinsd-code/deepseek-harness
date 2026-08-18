@@ -30,7 +30,7 @@ Status: implemented
 - `apps/` 作为对外导出的应用入口，可以由 Client / Host 混合组装。
     - `apps/web`（`dsh-web-frontend`）是 vite 应用：`dsh-client-web` 导出的壳 API 之上的一层薄 `main.ts`。
     - `apps/cli`（`@deepseek-ai/dsh`）分发命令：`dsh web` = Host + webserver + 构建出的 `dsh-web-frontend` dist；`dsh --profile headless` = [直接使用核心 Agent／Session 的入口](2026-08-09-headless-direct-core-entry-point.md)，不含 Host、HTTP 或浏览器层。
-    - 将来的 Electron 应用经由 IPC fetch 载体复用同一套 web client 包。
+    - Electron 应用经由上下文隔离的 IPC fetch 载体复用同一套 web client 包。
 
 ```
 apps/*  (applications: apps/web = vite app, apps/cli = bin dispatch)
@@ -73,7 +73,7 @@ TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.
 
 #### 怎么接入一个新应用（操作清单）
 
-1. **选 fetch 伪造方式**：浏览器同源 HTTP / 进程内 `host.handler.fetch` 注入 / 自写传输切面子类（如将来 Electron IPC，见下文「子类表」）。
+1. **选 fetch 伪造方式**：浏览器同源 HTTP / 进程内 `host.handler.fetch` 注入 / Electron IPC 载体 / 其他自写传输切面子类（见下文「子类表」）。
 2. **在 `apps/` 下写拼装模块**：`startHost()` + 客户端子类 + 该应用私有的信号/打印/退出语义；混合体不建包，拼装写在 app 里。
 3. **需要 HTTP 承载才 import `dsh-host-webserver`**，否则零端口。
 
@@ -216,7 +216,7 @@ export type ResponseValue<K> =
 | `InProcessApiClient` | apiproxy 本包 | 注入的 `{ fetch }` handler | **同构点**：`new InProcessApiClient(toFetchHandler(api))` 全程不过网络但真跑 wire 序列化/zod/SSE 帧；载体测试与调用方可以在不打开端口的情况下运行这套协议，而产品 `dsh --profile headless` 直接驱动 core |
 | `WebApiClient` | dsh-client-connection | `globalThis.fetch` 上行 + 每逻辑流一条同源 WebSocket 下行 | 浏览器客户端；物理边界见 [WebSocket 下行载体](2026-08-04-websocket-downlink-carrier.md) |
 | `FixtureApiClient` | dsh-client-connection | 不用（协议层覆写） | 无 server 的 UI 开发（`?fixture`）：覆写 `callUnary`/`openMux`/`openHost`/`respond` 虚方法，自己就是假 server（帧 rpcId 由它 mint，语义自洽） |
-| IPC 桥子类（假想示例——尚无此形态） | Electron 壳 | IPC 序列化往返 | 只需换 doFetch，约定/基类零改 |
+| `ElectronApiClient` | `apps/electron` | 上下文隔离的 IPC 序列化往返 | 替换 unary Fetch 和两条事件流的打开方式；协议 schema 与控制器保持不变 |
 
 ## 怎么扩展（操作清单）
 
@@ -226,13 +226,13 @@ export type ResponseValue<K> =
 
 **加一个错误码（2 步）**：①`RpcErrorDetailsMap` 加一行（details 必填）；②`rpcErrorSchema` discriminatedUnion 加一支。
 
-**接一种新载体**：继承 `AbstractApiClient` 只实现 `doFetch`；需要拦截协议层（如 fixture（测试前置数据））再覆写 `callUnary`/`openMux`/`openHost` 虚方法。约定与基类零改。
+**接一种新载体**：继承 `AbstractApiClient` 只实现 `doFetch`；需要拦截协议层（如 fixture（测试前置数据））再覆写 `callUnary`/`openMux`/`openHost` 虚方法。用该 API、通用 RPC Fetch 操作及其可信本地事实构造 `ClientCarrier`，并在共享 Client 图启动前调用 `registerClientCarrier()`。协议与 `connection` 选择代码零改；跨 bundle 注册机制由[客户端载体解耦决策](2026-08-14-decouple-electron-carrier-from-shared-client.md)持有。
 
 **升格一个预留方法**：把预留签名抄进域接口 → map 加行 → schema 加对 → UNARY_ROUTES 加行 → impl 实现。
 
 ## Consequences
 
-所有 client 使用同一约定：加一个 unary 方法是从单一签名出发的五步机械改动，换载体只动一个 `doFetch` 子类，wire 上每条消息可 zod 校验、可经 envelope tap 观测、可按 rpcId 对账。普通 unary 调用仍受时限约束，而 `host.pickDirectory` 与 `command.execute` 可保持挂起，直到操作完成或调用方／连接取消到来；若由用户掌控节奏的操作不自行结束，请求可能一直挂起，这是为避免把合理的操作时长视为传输失败而接受的代价。其余接受的代价：两组包需要显式 tsconfig paths 条目；预留方法（fork/inject/task.list/listModels/hostInstanceId）在真实消费方出现前保持休眠。
+所有 client 使用同一约定：加一个 unary 方法是从单一签名出发的五步机械改动，换载体只动它的 `AbstractApiClient` 子类与启动前注册，wire 上每条消息可 zod 校验、可经 envelope tap 观测、可按 rpcId 对账。普通 unary 调用仍受时限约束，而 `host.pickDirectory` 与 `command.execute` 可保持挂起，直到操作完成或调用方／连接取消到来；若由用户掌控节奏的操作不自行结束，请求可能一直挂起，这是为避免把合理的操作时长视为传输失败而接受的代价。其余接受的代价：两组包需要显式 tsconfig paths 条目；预留方法（fork/inject/task.list/listModels/hostInstanceId）在真实消费方出现前保持休眠。
 
 ## Alternatives considered
 
