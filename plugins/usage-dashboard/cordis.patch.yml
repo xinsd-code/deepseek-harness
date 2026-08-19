@@ -1,0 +1,20 @@
+# Out-of-tree usage-dashboard bundle patch.
+#
+# One insert over the profile root: the `usage-dashboard` plugin row. The CLI's
+# `dsh plugin --profile <name> add ./plugins/usage-dashboard` installs this
+# package into the profile and appends its name to `dsh.profile.bundles`; the
+# loader then applies this patch as a layer, loading the package's `.` entry
+# (the UsageStatsGateway service). No existing repository file is modified.
+#
+# The patch replaces the targeted row's whole config on collision (last write
+# wins), so a pre-existing `usage-dashboard` id — if any — would be overwritten
+# by this declaration.
+- id: modules
+  inject:
+    - usageDashboardCarrierReady
+
+- insert:
+    - id: usage-dashboard-carrier-ready
+      name: dsh-usage-dashboard/startup
+    - id: usage-dashboard
+      name: dsh-usage-dashboard
